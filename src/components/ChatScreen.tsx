@@ -156,10 +156,23 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   // Web Speech API state
   const [isListening, setIsListening] = useState(false);
+  const isListeningRef = useRef(false);
   const [speechLanguage, setSpeechLanguage] = useState<SpeechMode>('en-US');
+  const speechLanguageRef = useRef<SpeechMode>('en-US');
   const [speechError, setSpeechError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
-  const speechBaseTextRef = useRef<string>('');
+  const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const persistentTranscriptBufferRef = useRef<string>('');
+  const currentSessionSpeechRef = useRef<string>('');
+  const inputTextRef = useRef<string>('');
+
+  useEffect(() => {
+    speechLanguageRef.current = speechLanguage;
+  }, [speechLanguage]);
+
+  useEffect(() => {
+    inputTextRef.current = inputText;
+  }, [inputText]);
 
   // Text-To-Speech (SpeechSynthesis) state
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
@@ -171,6 +184,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const handleSelectSampleAnswer = (text: string) => {
     setInputText(text);
+    inputTextRef.current = text;
+    if (isListeningRef.current) {
+      persistentTranscriptBufferRef.current = text.trim();
+      currentSessionSpeechRef.current = '';
+    }
     if (inputError) setInputError(null);
     setShowSampleAnswers(false);
   };
@@ -216,6 +234,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   // Handle Speech Recognition cleanup on unmount
   useEffect(() => {
     return () => {
+      isListeningRef.current = false;
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current);
+      }
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -245,6 +267,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }
 
     window.speechSynthesis.cancel();
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
     setSpeakingIndex(index);
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -354,6 +379,119 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     };
   }, [autoFeedbackCountdown, isAutoFeedbackCancelled, messages, onRequestFeedback]);
 
+  // Start or restart speech recognition instance
+  const startRecognition = () => {
+    if (!SpeechRecognitionConstructor || !isListeningRef.current) return;
+
+    try {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.onstart = null;
+          recognitionRef.current.onresult = null;
+          recognitionRef.current.onerror = null;
+          recognitionRef.current.onend = null;
+          recognitionRef.current.abort();
+        } catch {
+          // ignore
+        }
+      }
+
+      const recognition = new SpeechRecognitionConstructor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = speechLanguageRef.current === 'ur-Roman' ? 'ur-PK' : speechLanguageRef.current;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setSpeechError(null);
+      };
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let sessionFinal = '';
+        let sessionInterim = '';
+
+        for (let i = 0; i < event.results.length; ++i) {
+          const res = event.results[i];
+          const transcript = res[0].transcript;
+          if (res.isFinal) {
+            sessionFinal += transcript + ' ';
+          } else {
+            sessionInterim += transcript;
+          }
+        }
+
+        let processedFinal = sessionFinal.trim();
+        let processedInterim = sessionInterim.trim();
+
+        if (speechLanguageRef.current === 'ur-Roman') {
+          if (processedFinal) processedFinal = urduToRomanUrdu(processedFinal);
+          if (processedInterim) processedInterim = urduToRomanUrdu(processedInterim);
+        }
+
+        const currentSpeech = [processedFinal, processedInterim].filter(Boolean).join(' ');
+        currentSessionSpeechRef.current = currentSpeech;
+
+        // Append new speech recognition results to persistent transcript buffer
+        const buffer = persistentTranscriptBufferRef.current.trim();
+        const combined = buffer
+          ? (currentSpeech ? `${buffer} ${currentSpeech}` : buffer)
+          : currentSpeech;
+
+        const bounded = combined.slice(0, 1200);
+        setInputText(bounded);
+        inputTextRef.current = bounded;
+      };
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          isListeningRef.current = false;
+          setIsListening(false);
+          setSpeechError('Microphone access was denied. Please allow microphone permissions in your browser.');
+        } else if (event.error === 'no-speech' || event.error === 'aborted') {
+          // Normal pause in speech or intentional restart - keep listening smoothly
+        } else if (event.error === 'audio-capture') {
+          isListeningRef.current = false;
+          setIsListening(false);
+          setSpeechError('No microphone detected. Please check your audio input device.');
+        } else {
+          if (!isListeningRef.current) {
+            setSpeechError(`Speech recognition message (${event.error}). You can continue speaking or typing.`);
+          }
+        }
+      };
+
+      recognition.onend = () => {
+        if (isListeningRef.current) {
+          // A pause or stream timeout occurred — commit the current session speech into the persistent transcript buffer
+          if (currentSessionSpeechRef.current.trim()) {
+            const buffer = persistentTranscriptBufferRef.current.trim();
+            const newSpeech = currentSessionSpeechRef.current.trim();
+            persistentTranscriptBufferRef.current = buffer ? `${buffer} ${newSpeech}` : newSpeech;
+            currentSessionSpeechRef.current = '';
+          }
+
+          if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+          restartTimeoutRef.current = setTimeout(() => {
+            if (isListeningRef.current) {
+              startRecognition();
+            }
+          }, 150);
+        } else {
+          setIsListening(false);
+        }
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      if (isListeningRef.current) {
+        setIsListening(false);
+        isListeningRef.current = false;
+        setSpeechError('Could not start microphone speech recognition.');
+      }
+    }
+  };
+
   // Toggle microphone recording via Web Speech API
   const handleToggleListening = async () => {
     if (!SpeechRecognitionConstructor) {
@@ -361,7 +499,20 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       return;
     }
 
-    if (isListening) {
+    if (isListeningRef.current) {
+      isListeningRef.current = false;
+      setIsListening(false);
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current);
+        restartTimeoutRef.current = null;
+      }
+      // Commit active speech into persistent buffer
+      if (currentSessionSpeechRef.current.trim()) {
+        const buffer = persistentTranscriptBufferRef.current.trim();
+        const newSpeech = currentSessionSpeechRef.current.trim();
+        persistentTranscriptBufferRef.current = buffer ? `${buffer} ${newSpeech}` : newSpeech;
+        currentSessionSpeechRef.current = '';
+      }
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -369,13 +520,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           // ignore
         }
       }
-      setIsListening(false);
       return;
     }
 
     try {
       setSpeechError(null);
-      speechBaseTextRef.current = inputText ? `${inputText.trim()} ` : '';
 
       if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
         try {
@@ -390,62 +539,41 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         }
       }
 
-      const recognition = new SpeechRecognitionConstructor();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = speechLanguage === 'ur-Roman' ? 'ur-PK' : speechLanguage;
+      // Initialize persistent buffer with existing text
+      const currentVal = (inputTextRef.current || inputText || '').trim();
+      persistentTranscriptBufferRef.current = currentVal;
+      currentSessionSpeechRef.current = '';
 
-      recognition.onstart = () => {
-        setIsListening(true);
-        setSpeechError(null);
-      };
-
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const result = event.results[i];
-          if (result.isFinal) {
-            finalTranscript += result[0].transcript;
-          } else {
-            interimTranscript += result[0].transcript;
-          }
-        }
-
-        let combined = finalTranscript || interimTranscript;
-
-        if (speechLanguage === 'ur-Roman' && combined) {
-          combined = urduToRomanUrdu(combined);
-        }
-
-        const newText = (speechBaseTextRef.current + combined).slice(0, 1200);
-        setInputText(newText);
-      };
-
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        if (event.error === 'not-allowed') {
-          setSpeechError('Microphone access was denied. Please allow microphone permissions in your browser.');
-        } else if (event.error !== 'no-speech') {
-          setSpeechError(`Speech recognition error (${event.error}). You can continue typing.`);
-        }
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (err: unknown) {
-      const errorObj = err as Error;
-      if (errorObj.name === 'NotAllowedError') {
-        setSpeechError('Microphone access was denied. Please allow microphone permissions in your browser.');
-      } else {
-        setSpeechError('Could not start microphone. Please check permissions.');
-      }
+      isListeningRef.current = true;
+      setIsListening(true);
+      startRecognition();
+    } catch {
+      setSpeechError('Could not start microphone. Please check permissions.');
+      isListeningRef.current = false;
       setIsListening(false);
+    }
+  };
+
+  const handleChangeLanguage = (newLang: SpeechMode) => {
+    setSpeechLanguage(newLang);
+    speechLanguageRef.current = newLang;
+    if (isListeningRef.current && recognitionRef.current) {
+      if (currentSessionSpeechRef.current.trim()) {
+        const buffer = persistentTranscriptBufferRef.current.trim();
+        const newSpeech = currentSessionSpeechRef.current.trim();
+        persistentTranscriptBufferRef.current = buffer ? `${buffer} ${newSpeech}` : newSpeech;
+        currentSessionSpeechRef.current = '';
+      }
+      try {
+        recognitionRef.current.abort();
+      } catch {
+        // ignore
+      }
+      setTimeout(() => {
+        if (isListeningRef.current) {
+          startRecognition();
+        }
+      }, 100);
     }
   };
 
@@ -453,13 +581,26 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const handleSendMessage = async () => {
     if (isAiTyping || isFeedbackLoading || isDone) return;
 
-    if (isListening && recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {
-        // ignore
-      }
+    if (isListeningRef.current) {
+      isListeningRef.current = false;
       setIsListening(false);
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current);
+        restartTimeoutRef.current = null;
+      }
+      if (currentSessionSpeechRef.current.trim()) {
+        const buffer = persistentTranscriptBufferRef.current.trim();
+        const newSpeech = currentSessionSpeechRef.current.trim();
+        persistentTranscriptBufferRef.current = buffer ? `${buffer} ${newSpeech}` : newSpeech;
+        currentSessionSpeechRef.current = '';
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
     }
 
     const trimmed = inputText.trim();
@@ -634,21 +775,31 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               key={index}
               className={`flex flex-col message-fade ${isInterviewer ? 'items-start' : 'items-end'}`}
             >
-              {/* Role Label */}
-              <div className={`text-xs font-semibold text-[#475569] mb-1 flex items-center gap-1.5 ${isInterviewer ? 'pl-2' : 'pr-2'}`}>
+              {/* Role Label & Text-To-Speech Listen Button */}
+              <div className={`text-xs font-semibold text-[#475569] mb-1 flex items-center gap-2 ${isInterviewer ? 'pl-2' : 'pr-2'}`}>
                 <span>{isInterviewer ? 'Interviewer' : 'You'}</span>
                 {isInterviewer && (
                   <button
                     type="button"
                     onClick={() => handleToggleSpeak(msg.content, index)}
-                    title={isSpeaking ? 'Stop speaking' : 'Listen out loud (TTS)'}
-                    className="p-1 rounded text-[#94A3B8] hover:text-[#0F172A] transition-colors cursor-pointer"
-                    aria-label={isSpeaking ? 'Stop question audio' : 'Play question audio aloud'}
+                    title={isSpeaking ? 'Click to stop reading question' : 'Click to read question aloud'}
+                    className={`min-h-[30px] px-2 py-0.5 rounded-[8px] text-[11px] font-medium transition-colors flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:outline-none ${
+                      isSpeaking
+                        ? 'bg-[#FEF2F2] hover:bg-[#FEE2E2] text-[#B91C1C] border border-[#FECACA]'
+                        : 'bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#0F766E] hover:text-[#115E59] border border-[#E2E8F0]'
+                    }`}
+                    aria-label={isSpeaking ? 'Stop reading question aloud' : 'Read question aloud'}
                   >
                     {isSpeaking ? (
-                      <VolumeX className="w-3.5 h-3.5 text-[#0F766E]" />
+                      <>
+                        <VolumeX className="w-3.5 h-3.5 text-[#B91C1C]" />
+                        <span>Stop</span>
+                      </>
                     ) : (
-                      <Volume2 className="w-3.5 h-3.5" />
+                      <>
+                        <Volume2 className="w-3.5 h-3.5 text-[#0F766E]" />
+                        <span>Read aloud</span>
+                      </>
                     )}
                   </button>
                 )}
@@ -850,7 +1001,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             maxLength={1200}
             disabled={isAiTyping || isFeedbackLoading || isDone}
             onChange={(e) => {
-              setInputText(e.target.value);
+              const val = e.target.value;
+              setInputText(val);
+              inputTextRef.current = val;
+              if (isListeningRef.current) {
+                persistentTranscriptBufferRef.current = val.trim();
+                currentSessionSpeechRef.current = '';
+              }
               if (inputError) setInputError(null);
             }}
             onKeyDown={handleKeyDown}
@@ -911,30 +1068,27 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               <div className="inline-flex items-center gap-1 p-0.5 bg-[#F1F5F9] rounded-[8px] border border-[#E2E8F0]">
                 <button
                   type="button"
-                  disabled={isListening}
-                  onClick={() => setSpeechLanguage('en-US')}
+                  onClick={() => handleChangeLanguage('en-US')}
                   className={`px-2 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                    speechLanguage === 'en-US' ? 'bg-white text-[#0F766E] font-semibold' : 'text-[#475569]'
+                    speechLanguage === 'en-US' ? 'bg-white text-[#0F766E] font-semibold shadow-xs' : 'text-[#475569]'
                   }`}
                 >
                   EN
                 </button>
                 <button
                   type="button"
-                  disabled={isListening}
-                  onClick={() => setSpeechLanguage('ur-Roman')}
+                  onClick={() => handleChangeLanguage('ur-Roman')}
                   className={`px-2 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                    speechLanguage === 'ur-Roman' ? 'bg-white text-[#0F766E] font-semibold' : 'text-[#475569]'
+                    speechLanguage === 'ur-Roman' ? 'bg-white text-[#0F766E] font-semibold shadow-xs' : 'text-[#475569]'
                   }`}
                 >
                   Roman Urdu
                 </button>
                 <button
                   type="button"
-                  disabled={isListening}
-                  onClick={() => setSpeechLanguage('ur-PK')}
+                  onClick={() => handleChangeLanguage('ur-PK')}
                   className={`px-2 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                    speechLanguage === 'ur-PK' ? 'bg-white text-[#0F766E] font-semibold' : 'text-[#475569]'
+                    speechLanguage === 'ur-PK' ? 'bg-white text-[#0F766E] font-semibold shadow-xs' : 'text-[#475569]'
                   }`}
                 >
                   اردو
