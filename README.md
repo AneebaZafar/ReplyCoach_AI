@@ -17,22 +17,7 @@ Built for the **NYLP AI Hackathon 2026**.
 ---
 
 ## Screenshots
-
-| Home | Roleplay chat |
-|---|---|
-| ![Home](pictures/screenshots/home.png) | ![Chat](docs/screenshots/chat.png) |
-
-| Feedback report | Before / after rewrite |
-|---|---|
-| ![Feedback](docs/screenshots/feedback.png) | ![Rewrite](docs/screenshots/rewrite.png) |
-
-| Progress dashboard | Mobile view |
-|---|---|
-| ![Dashboard](docs/screenshots/dashboard.png) | ![Mobile](docs/screenshots/mobile.png) |
-
-<!-- Add the image files to docs/screenshots/ in the repo, using the names above. -->
-
----
+(https://drive.google.com/drive/folders/1cf_Q4dUL7KjuHC8qC77UqziWjyDzrio_?usp=drive_link)
 
 ## Problem
 
