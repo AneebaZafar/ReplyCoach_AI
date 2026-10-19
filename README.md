@@ -10,7 +10,7 @@ Built for the **NYLP AI Hackathon 2026**.
 |---|---|
 | **Live app** | https://replycoach.ai.studio/ |
 | **Repository** | https://github.com/AneebaZafar/ReplyCoach_AI |
-| **Demo video** | [ADD VIDEO LINK] |
+
 
 **Try it in about 2 minutes:** open the live app, choose *Quick Demo: Job Interview*, answer two questions, then open the feedback report and look at the before/after rewrite.
 
@@ -20,7 +20,7 @@ Built for the **NYLP AI Hackathon 2026**.
 
 | Home | Roleplay chat |
 |---|---|
-| ![Home](docs/screenshots/home.png) | ![Chat](docs/screenshots/chat.png) |
+| ![Home](pictures/screenshots/home.png) | ![Chat](docs/screenshots/chat.png) |
 
 | Feedback report | Before / after rewrite |
 |---|---|
