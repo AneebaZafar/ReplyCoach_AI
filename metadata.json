@@ -1,0 +1,6 @@
+{
+  "name": "ReplyCoach",
+  "description": "AI communication coach for Pakistani students and fresh graduates to practice interviews and high-stakes conversations.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
