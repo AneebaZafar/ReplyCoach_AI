@@ -218,7 +218,7 @@ We tested the live app across all five scenarios, both session lengths, and both
 - the salary scenario with and without an offer figure
 - phone and desktop layouts, voice input, PDF export, and the progress dashboard
 
-**Results:** [ADD YOUR REAL RESULTS, for example "X of Y test sessions returned valid structured feedback on the first attempt."]
+**Results:** We manually tested the live app across multiple scenarios and checked the core flow, input validation, and error handling. Automated test coverage and larger-scale testing are planned for future development.
 
 ---
 
@@ -255,8 +255,8 @@ We tested the live app across all five scenarios, both session lengths, and both
 
 | Member | Role | Contributions |
 |---|---|---|
-| [NAME] | [ROLE] | [For example: product concept, PRD, prompt design, development, testing, README, demo video] |
-| [NAME] | [ROLE] | [CONTRIBUTIONS] |
+| ANEEBA ZAFAR|  Product concept, PRD, Prompt design, Development, Deployment, Testing, README, demo video |
+
 
 ## Development tools
 
