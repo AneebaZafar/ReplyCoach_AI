@@ -255,7 +255,7 @@ We tested the live app across all five scenarios, both session lengths, and both
 
 | Member | Role | Contributions |
 |---|---|---|
-| ANEEBA ZAFAR|  Product concept, PRD, Prompt design, Development, Deployment, Testing, README, demo video |
+| ANEEBA ZAFAR|Team Leader|  Product concept, PRD, Prompt design, Development, Deployment, Testing, README, demo video |
 
 
 ## Development tools
