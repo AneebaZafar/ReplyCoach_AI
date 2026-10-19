@@ -133,8 +133,8 @@ User (React frontend)
 |---|---|
 | Provider | Google Gemini API |
 | SDK | Google GenAI TypeScript SDK (`@google/genai`) |
-| Primary model | `[CONFIRM EXACT MODEL NAME FROM server/ CODE]` |
-| Fallback model | `[CONFIRM EXACT MODEL NAME FROM server/ CODE]` |
+| Primary model | `[gemini-3.1-flash-lite]` |
+| Fallback model | `[gemini-3.8-flash]` |
 | Routes | `POST /api/chat` (roleplay), `POST /api/feedback` (evaluation) |
 | Settings | Roleplay uses a higher temperature for natural conversation. Evaluation uses a low temperature and structured JSON output for consistent scoring. |
 | Key handling | `GEMINI_API_KEY` is read from an environment variable on the server and never sent to the browser. |
